@@ -1,9 +1,13 @@
 package retry
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 const (
 	defaultAttempts = 3
+	defaultDelay    = 5 * time.Second
 )
 
 type returnErrFunc func() (err error)
@@ -15,18 +19,34 @@ type Retry interface {
 
 type retry struct {
 	attempts int
+	delay    time.Duration
 }
 
 // Do ...
 func (r *retry) Do(ctx context.Context, f returnErrFunc) (err error) {
-	if err = ctx.Err(); err != nil {
-		return
-	}
-	var n int
-	for n < r.attempts {
-		err = f()
-		if err != nil {
-			// TODO: implement
+	var (
+		actualAttempts int
+		ticker         = time.NewTicker(r.delay)
+	)
+	defer ticker.Stop()
+	for actualAttempts < r.attempts {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			err = f()
+			if err == nil {
+				return
+			}
+
+			actualAttempts++
+			ticker.Reset(r.delay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				continue
+			}
 		}
 	}
 	return
@@ -36,6 +56,7 @@ func (r *retry) Do(ctx context.Context, f returnErrFunc) (err error) {
 func NewRetry(opts ...Option) Retry {
 	r := retry{
 		attempts: defaultAttempts,
+		delay:    defaultDelay,
 	}
 	for _, opt := range opts {
 		opt(&r)
