@@ -24,6 +24,10 @@ type retry struct {
 
 // Do ...
 func (r *retry) Do(ctx context.Context, f returnErrFunc) (err error) {
+	err = f()
+	if err == nil {
+		return
+	}
 	var (
 		actualAttempts int
 		ticker         = time.NewTicker(r.delay)
